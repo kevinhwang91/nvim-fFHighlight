@@ -92,6 +92,7 @@ local function findWordsInLineWithIndex(line, colsIndex)
 end
 
 local function getKeystroke()
+    ---@diagnostic disable-next-line: undefined-field
     local nr = ffi.C.get_keystroke(nil)
     return nr > 0 and nr < 128 and ('%c'):format(nr) or ''
 end
@@ -185,18 +186,18 @@ function M.mayReset()
             col = col + 1
             local nextColIdx = M.binarySearch(Context.colsIndex, col)
             if nextColIdx < 0 then
-                M.reset(Context.bufnr)
+                M.reset()
             end
         else
-            M.reset(Context.bufnr)
+            M.reset()
         end
     else
-        M.reset(Context.bufnr)
+        M.reset()
     end
 end
 
-function M.reset(bufnr)
-    clearVirtText(bufnr)
+function M.reset()
+    clearVirtText(Context.bufnr)
     cmd('au! fFHighlight')
 end
 
