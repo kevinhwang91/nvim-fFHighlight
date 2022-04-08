@@ -8,14 +8,14 @@ Highlight the chars and words searched by `f` and `F`.
 
 ## Features
 
--   Highlight the chars searched by `f` and `F`
--   Highlight the words including the searched chars
+- Highlight the chars searched by `f` and `F`
+- Highlight the words including the searched chars
 
 ## Quickstart
 
 ### Requirements
 
--   [Neovim](https://github.com/neovim/neovim) 0.5 or later
+- [Neovim](https://github.com/neovim/neovim) 0.5 or later
 
 > 0.6 or later must be required for Windows users
 
@@ -46,7 +46,7 @@ The built-in `f` and `F` have been improved, enjoy!
 ```lua
 {
     disable_keymap = {
-        description = [[Disable keymap,  users should map them manually]],
+        description = [[Disable keymaps, users should map them manually]],
         default = false
     },
     disable_words_hl = {
@@ -79,6 +79,11 @@ hi default fFPromptSign ctermfg=yellow cterm=bold guifg=yellow gui=bold
 use {
     'kevinhwang91/nvim-fFHighlight',
     config = function()
+        vim.cmd([[
+            hi fFHintChar ctermfg=yellow cterm=bold,undercurl guifg=yellow gui=bold,undercurl
+            hi fFHintWords cterm=undercurl gui=undercurl guisp=yellow
+            hi fFPromptSign ctermfg=yellow cterm=bold guifg=yellow gui=bold
+        ]])
         require('fFHighlight').setup({
             disable_words_hl = false,
             prompt_sign_define = {text = '✹'}
