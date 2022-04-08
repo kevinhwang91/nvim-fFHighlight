@@ -30,7 +30,7 @@ use {'kevinhwang91/nvim-fFhighlight'}
 ### Minimal configuration
 
 ```lua
-require('fFhighlight').setup()
+require('fFHighlight').setup()
 ```
 
 ### Usage
