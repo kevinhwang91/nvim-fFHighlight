@@ -72,7 +72,7 @@ local function findWordsInLineWithIndex(line, colsIndex)
     local lastOff = 1
     local col = colsIndex[lastIndex]
     while col and #line > 0 do
-        -- s is inclusive and e is executive
+        -- s is inclusive and e is exclusive
         local s, e = wordRegex:match_str(line)
         if not s then
             break
