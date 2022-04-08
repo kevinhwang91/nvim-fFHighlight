@@ -1,4 +1,4 @@
-# nvim-fFhighlight
+# nvim-fFHighlight
 
 Highlight the chars and words searched by `f` and `F`.
 
@@ -21,10 +21,10 @@ Highlight the chars and words searched by `f` and `F`.
 
 ### Installation
 
-Install nvim-hlslens with [Packer.nvim](https://github.com/wbthomason/packer.nvim):
+Install nvim-fFHighlight with [Packer.nvim](https://github.com/wbthomason/packer.nvim):
 
 ```lua
-use {'kevinhwang91/nvim-fFhighlight'}
+use {'kevinhwang91/nvim-fFHighlight'}
 ```
 
 ### Minimal configuration
