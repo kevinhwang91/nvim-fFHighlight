@@ -94,6 +94,11 @@ end
 local function getKeystroke()
     ---@diagnostic disable-next-line: undefined-field
     local nr = ffi.C.get_keystroke(nil)
+    -- C-c throw E5108: Error executing lua Keyboard interrupt
+    -- `got_int` have been set to true, need an extra pcall command to eat it
+    if nr == 3 then
+        pcall(vim.cmd, '')
+    end
     return nr > 0 and nr < 128 and ('%c'):format(nr) or ''
 end
 
