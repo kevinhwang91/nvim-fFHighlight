@@ -136,6 +136,7 @@ end
 --- find a char
 ---@param prefix string|'f'|'F'
 function M.findWith(prefix)
+    assert(initialized, [[Not initialized yet, `require('fFHighlight').setup()` is required]])
     assert(validPrefix(prefix), [[Only support 'f' or 'F' as a prefix]])
     local cnt = vim.v.count
     cnt = cnt == 0 and '' or tostring(cnt)
