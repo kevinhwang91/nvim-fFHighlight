@@ -17,10 +17,12 @@ local disablePromptSign
 local numberHintThreshold
 
 local Context = {}
-function Context:build(char, lnum, colsIdx, bufnr, winid)
+function Context:build(char, lnum, colsIdx, wordRanges, bufnr, winid)
     self.char = char
     self.lnum = lnum
     self.colsIdx = colsIdx
+    self.wordRanges = wordRanges
+    self.curWordVirtTextId = nil
     self.virtTextIds = nil
     self.bufnr = bufnr or api.nvim_get_current_buf()
     self.winid = winid or api.nvim_get_current_win()
@@ -70,7 +72,7 @@ local function getCharIndexInLine(line, char)
     return index
 end
 
-local function findWordsInLineWithIndex(line, colsIdx)
+local function findWordRangesInLineWithIndex(line, colsIdx)
     local words = {}
     local lastIndex = 1
     local lastOff = 1
@@ -163,16 +165,17 @@ function M.findWith(prefix)
     local colsIdx = getCharIndexInLine(curLine, char)
 
     clearVirtText(bufnr)
-    Context:build(char, lnum, colsIdx, bufnr)
 
+    local wordRanges
     if not disableWordsHl then
-        local words = findWordsInLineWithIndex(curLine, colsIdx)
-        for _, word in ipairs(words) do
-            local startCol, endCol = unpack(word)
+        wordRanges = findWordRangesInLineWithIndex(curLine, colsIdx)
+        for _, range in ipairs(wordRanges) do
+            local startCol, endCol = unpack(range)
             setVirtTextOverlap(bufnr, lnum - 1, startCol - 1, curLine:sub(startCol, endCol),
-                'fFHintWords', {priority = hlPriority - 1})
+                'fFHintWords', {priority = hlPriority - 2})
         end
     end
+    Context:build(char, lnum, colsIdx, wordRanges, bufnr)
 
     cmd([[
         augroup fFHighlight
@@ -188,6 +191,8 @@ local function render(curColIdx)
     local char = Context.char
     local lnum = Context.lnum
     local colsIdx = Context.colsIdx
+    local wordRanges = Context.wordRanges
+    local curWordVirtTextId = Context.curWordVirtTextId
     local virtTextIds = Context.virtTextIds
     local bufnr = Context.bufnr
     if not virtTextIds then
@@ -220,6 +225,28 @@ local function render(curColIdx)
             break
         end
         setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
+    end
+
+    if wordRanges then
+        local col = colsIdx[curColIdx]
+        local found = false
+        local startCol, endCol
+        for _, range in ipairs(wordRanges) do
+            startCol, endCol = unpack(range)
+            if startCol <= col and col <= endCol then
+                found = true
+                break
+            end
+        end
+        assert(found, [[Can't find the current word range, it should never raise an error here]])
+        local curLine = api.nvim_get_current_line()
+        if not curWordVirtTextId then
+            Context.curWordVirtTextId = setVirtTextOverlap(bufnr, lnum - 1, startCol - 1,
+                curLine:sub(startCol, endCol), 'fFHintCurrentWord', {priority = hlPriority - 1})
+        else
+            setVirtTextOverlap(bufnr, lnum - 1, startCol - 1, curLine:sub(startCol, endCol),
+                'fFHintCurrentWord', {id = curWordVirtTextId, priority = hlPriority - 1})
+        end
     end
 end
 
@@ -279,6 +306,7 @@ local function initialize(config)
         hi default fFHintChar ctermfg=yellow cterm=bold guifg=yellow gui=bold
         hi default fFHintNumber ctermfg=yellow cterm=bold guifg=yellow gui=bold
         hi default fFHintWords cterm=underline gui=underline
+        hi default link fFHintCurrentWord fFHintWords
         hi default fFPromptSign ctermfg=yellow cterm=bold guifg=yellow gui=bold
     ]])
 

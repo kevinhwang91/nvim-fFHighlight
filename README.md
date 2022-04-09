@@ -90,13 +90,15 @@ The built-in `f` and `F` have been improved, enjoy!
 hi default fFHintChar ctermfg=yellow cterm=bold,underline guifg=yellow gui=bold,underline
 hi default fFHintNumber ctermfg=yellow cterm=bold,underline guifg=yellow gui=bold,underline
 hi default fFHintWords cterm=underline gui=underline
+hi default link fFHintCurrentWord fFHintWords
 hi default fFPromptSign ctermfg=yellow cterm=bold guifg=yellow gui=bold
 ```
 
 1. fFHintChar: highlight the hint of chars
 2. fFHintNumber: highlight the hint of number
 3. fFHintWords: highlight the hint of words
-4. fFPromptSign: highlight the prompt sign before searching a char
+4. fFHintCurrentWord: highlight the hint of current word
+5. fFPromptSign: highlight the prompt sign before searching a char
 
 ### API
 
