@@ -133,6 +133,8 @@ local function validMode(mode)
     return false
 end
 
+--- find a char
+---@param prefix string|'f'|'F'
 function M.findWith(prefix)
     assert(validPrefix(prefix), [[Only support 'f' or 'F' as a prefix]])
     local cnt = vim.v.count

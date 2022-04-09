@@ -18,6 +18,7 @@ Highlight the chars and words searched by `f` and `F`.
 * [Documentation](#documentation)
   * [Setup and description](#setup-and-description)
   * [Highlight](#highlight)
+  * [API](#api)
 * [Customize configuration](#customize-configuration)
 * [Feedback](#feedback)
 * [License](#license)
@@ -71,8 +72,8 @@ The built-in `f` and `F` have been improved, enjoy!
         default = false
     },
     number_hint_threshold = {
-        description = [[If the count of repeat latest `f` or `F` to the char is equal or greater this
-                        value, use number to overlap char. minimal value is 2]],
+        description = [[If the count of repeating latest `f` or `F` to the char is equal or greater
+                        than this value, use number to overlap char. minimal value is 2]],
         default = 3
     },
     prompt_sign_define = {
@@ -96,6 +97,17 @@ hi default fFPromptSign ctermfg=yellow cterm=bold guifg=yellow gui=bold
 2. fFHintNumber: highlight the hint of number
 3. fFHintWords: highlight the hint of words
 4. fFPromptSign: highlight the prompt sign before searching a char
+
+### API
+
+```lua
+-- All API under this module
+local m = require('fFHighlight')
+
+--- find a char
+---@param prefix string|'f'|'F'
+m.findWith(prefix)
+```
 
 ## Customize configuration
 
