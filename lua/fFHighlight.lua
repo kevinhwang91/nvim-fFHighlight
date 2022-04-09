@@ -14,20 +14,24 @@ local wordRegex
 local hlPriority
 local disableWordsHl
 local disablePromptSign
+local numberHintThreshold
 
 local Context = {}
-function Context:build(lnum, colsIndex, bufnr, winid)
+function Context:build(char, lnum, colsIdx, bufnr, winid)
+    self.char = char
     self.lnum = lnum
-    self.colsIndex = colsIndex
+    self.colsIdx = colsIdx
+    self.virtTextIds = nil
     self.bufnr = bufnr or api.nvim_get_current_buf()
     self.winid = winid or api.nvim_get_current_win()
 end
 
 function Context:valid()
-    local indexValid = type(self.lnum) == 'number' and type(self.colsIndex) == 'table'
+    local charValid = type(self.char) == 'string' and #self.char == 1
+    local indexValid = type(self.lnum) == 'number' and type(self.colsIdx) == 'table'
     local bufValid = self.bufnr > 0 and api.nvim_buf_is_valid(self.bufnr)
     local winValid = self.winid > 0 and api.nvim_win_is_valid(self.winid)
-    return indexValid and winValid and bufValid
+    return charValid and indexValid and winValid and bufValid
 end
 
 function M.binarySearch(items, element, comp)
@@ -66,11 +70,11 @@ local function getCharIndexInLine(line, char)
     return index
 end
 
-local function findWordsInLineWithIndex(line, colsIndex)
+local function findWordsInLineWithIndex(line, colsIdx)
     local words = {}
     local lastIndex = 1
     local lastOff = 1
-    local col = colsIndex[lastIndex]
+    local col = colsIdx[lastIndex]
     while col and #line > 0 do
         -- s is inclusive and e is exclusive
         local s, e = wordRegex:match_str(line)
@@ -82,7 +86,7 @@ local function findWordsInLineWithIndex(line, colsIndex)
             table.insert(words, {startCol, endCol})
             while col and col <= endCol do
                 lastIndex = lastIndex + 1
-                col = colsIndex[lastIndex]
+                col = colsIdx[lastIndex]
             end
         end
         lastOff = lastOff + e
@@ -100,6 +104,17 @@ local function getKeystroke()
         pcall(vim.cmd, '')
     end
     return nr > 0 and nr < 128 and ('%c'):format(nr) or ''
+end
+
+local function setVirtTextOverlap(bufnr, row, col, char, hlName, opts)
+    opts = opts or {}
+    return api.nvim_buf_set_extmark(bufnr, ns, row, col, {
+        id = opts.id,
+        virt_text = {{char, hlName}},
+        virt_text_pos = 'overlay',
+        hl_mode = 'combine',
+        priority = opts.priority or hlPriority
+    })
 end
 
 local function clearVirtText(bufnr)
@@ -142,42 +157,70 @@ function M.findWith(prefix)
         return
     end
     local curLine = api.nvim_get_current_line()
-    local colsIndex = getCharIndexInLine(curLine, char)
-    Context:build(lnum, colsIndex, bufnr)
-
-    local function addVirtTextOverlap(row, startCol, endCol, hlGroup, priority)
-        api.nvim_buf_set_extmark(bufnr, ns, row, startCol - 1, {
-            virt_text = {{curLine:sub(startCol, endCol), hlGroup}},
-            virt_text_pos = 'overlay',
-            hl_mode = 'combine',
-            priority = priority
-        })
-    end
+    local colsIdx = getCharIndexInLine(curLine, char)
 
     clearVirtText(bufnr)
-    for _, i in ipairs(colsIndex) do
-        addVirtTextOverlap(lnum - 1, i, i, 'fFHintChar', hlPriority + 1)
-    end
+    Context:build(char, lnum, colsIdx, bufnr)
 
     if not disableWordsHl then
-        local words = findWordsInLineWithIndex(curLine, colsIndex)
+        local words = findWordsInLineWithIndex(curLine, colsIdx)
         for _, word in ipairs(words) do
             local startCol, endCol = unpack(word)
-            addVirtTextOverlap(lnum - 1, startCol, endCol, 'fFHintWords', hlPriority)
+            setVirtTextOverlap(bufnr, lnum - 1, startCol - 1, curLine:sub(startCol, endCol),
+                'fFHintWords', {priority = hlPriority - 1})
         end
     end
 
     cmd([[
         augroup fFHighlight
             au!
-            au CursorMoved * lua require('fFHighlight').mayReset()
+            au CursorMoved * lua require('fFHighlight').move()
             au InsertEnter,TextChanged * lua require('fFHighlight').reset()
         augroup END
     ]])
     api.nvim_feedkeys(cnt .. prefix .. char, 'in', false)
 end
 
-function M.mayReset()
+local function render(curColIdx)
+    local char = Context.char
+    local lnum = Context.lnum
+    local colsIdx = Context.colsIdx
+    local virtTextIds = Context.virtTextIds
+    local bufnr = Context.bufnr
+    if not virtTextIds then
+        virtTextIds = {}
+        for _, col in ipairs(colsIdx) do
+            local id = setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar')
+            table.insert(virtTextIds, id)
+        end
+        Context.virtTextIds = virtTextIds
+    else
+        for i, id in ipairs(virtTextIds) do
+            local col = colsIdx[i]
+            setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar', {id = id})
+        end
+    end
+    for i = curColIdx - numberHintThreshold, 1, -1 do
+        local id = virtTextIds[i]
+        local col = colsIdx[i]
+        local num = curColIdx - i
+        if num > 9 then
+            break
+        end
+        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
+    end
+    for i = curColIdx + numberHintThreshold, #colsIdx do
+        local id = virtTextIds[i]
+        local col = colsIdx[i]
+        local num = i - curColIdx
+        if num > 9 then
+            break
+        end
+        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
+    end
+end
+
+function M.move()
     if not Context:valid() then
         M.reset()
         return
@@ -189,10 +232,13 @@ function M.mayReset()
         local lnum, col = unpack(pos)
         if lnum == Context.lnum then
             col = col + 1
-            local nextColIdx = M.binarySearch(Context.colsIndex, col)
-            if nextColIdx < 0 then
+            local colsIdx = Context.colsIdx
+            local curColIdx = M.binarySearch(colsIdx, col)
+            if curColIdx < 0 then
                 M.reset()
+                return
             end
+            render(curColIdx)
         else
             M.reset()
         end
@@ -224,9 +270,11 @@ local function initialize(config)
         api.nvim_set_keymap('x', 'F', [[<Cmd>lua require('fFHighlight').findWith('F')<CR>]], kopt)
     end
     disableWordsHl = config.disable_words_hl
+    numberHintThreshold = config.number_hint_threshold
 
     cmd([[
-        hi default fFHintChar ctermfg=yellow cterm=bold,underline guifg=yellow gui=bold,underline
+        hi default fFHintChar ctermfg=yellow cterm=bold guifg=yellow gui=bold
+        hi default fFHintNumber ctermfg=yellow cterm=bold guifg=yellow gui=bold
         hi default fFHintWords cterm=underline gui=underline
         hi default fFPromptSign ctermfg=yellow cterm=bold guifg=yellow gui=bold
     ]])
@@ -244,8 +292,11 @@ local function initialize(config)
 end
 
 function M.setup(opts)
-    local config = vim.tbl_deep_extend('keep', opts or {},
-        {disable_keymap = false, disable_words_hl = false})
+    local config = vim.tbl_deep_extend('keep', opts or {}, {
+        disable_keymap = false,
+        disable_words_hl = false,
+        number_hint_threshold = 3
+    })
 
     if config.prompt_sign_define and vim.tbl_isempty(config.prompt_sign_define) then
         config.prompt_sign_define = nil
@@ -259,6 +310,11 @@ function M.setup(opts)
     vim.validate({
         disable_keymap = {config.disable_keymap, 'boolean'},
         disable_words_hl = {config.disable_words_hl, 'boolean'},
+        number_hint_threshold = {
+            config.number_hint_threshold, function(v)
+                return type(v) == 'number' and v > 1
+            end, 'a number greater than 1'
+        },
         prompt_sign_define = {config.prompt_sign_define, 'table', true}
     })
 
