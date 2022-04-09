@@ -229,23 +229,24 @@ local function render(curColIdx)
 
     if wordRanges then
         local col = colsIdx[curColIdx]
-        local found = false
         local startCol, endCol
         for _, range in ipairs(wordRanges) do
-            startCol, endCol = unpack(range)
-            if startCol <= col and col <= endCol then
-                found = true
+            local s, e = unpack(range)
+            if s <= col and col <= e then
+                startCol, endCol = s, e
                 break
             end
         end
-        assert(found, [[Can't find the current word range, it should never raise an error here]])
-        local curLine = api.nvim_get_current_line()
-        if not curWordVirtTextId then
-            Context.curWordVirtTextId = setVirtTextOverlap(bufnr, lnum - 1, startCol - 1,
-                curLine:sub(startCol, endCol), 'fFHintCurrentWord', {priority = hlPriority - 1})
-        else
-            setVirtTextOverlap(bufnr, lnum - 1, startCol - 1, curLine:sub(startCol, endCol),
-                'fFHintCurrentWord', {id = curWordVirtTextId, priority = hlPriority - 1})
+
+        if startCol and endCol then
+            local curLine = api.nvim_get_current_line()
+            if not curWordVirtTextId then
+                Context.curWordVirtTextId = setVirtTextOverlap(bufnr, lnum - 1, startCol - 1,
+                    curLine:sub(startCol, endCol), 'fFHintCurrentWord', {priority = hlPriority - 1})
+            else
+                setVirtTextOverlap(bufnr, lnum - 1, startCol - 1, curLine:sub(startCol, endCol),
+                    'fFHintCurrentWord', {id = curWordVirtTextId, priority = hlPriority - 1})
+            end
         end
     end
 end
