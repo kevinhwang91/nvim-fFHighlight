@@ -124,6 +124,10 @@ local function clearVirtText(bufnr)
     api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 end
 
+local function isFloatWin(winid)
+    return fn.win_gettype(winid) == 'popup'
+end
+
 local function validPrefix(prefix)
     return type(prefix) == 'string' and prefix:lower() == 'f'
 end
@@ -147,12 +151,15 @@ function M.findWith(prefix)
     assert(validMode(mode), 'Only support normal or visual mode')
 
     local bufnr = api.nvim_get_current_buf()
+    local winid = api.nvim_get_current_win()
     local lnum = api.nvim_win_get_cursor(0)[1]
     local signId
-    if not disablePromptSign and vim.wo.signcolumn ~= 'no' then
-        signId = fn.sign_place(0, signGroup, 'PromptSign', bufnr,
-            {lnum = lnum, priority = signPriority})
-        cmd('redraw')
+    if not disablePromptSign then
+        if not (vim.wo.signcolumn == 'auto' and isFloatWin(winid)) then
+            signId = fn.sign_place(0, signGroup, 'PromptSign', bufnr,
+                {lnum = lnum, priority = signPriority})
+            cmd('redraw')
+        end
     end
     local char = getKeystroke()
     if signId then
@@ -175,7 +182,7 @@ function M.findWith(prefix)
                 'fFHintWords', {priority = hlPriority - 2})
         end
     end
-    Context:build(char, lnum, colsIdx, wordRanges, bufnr)
+    Context:build(char, lnum, colsIdx, wordRanges, bufnr, winid)
 
     cmd([[
         augroup fFHighlight
