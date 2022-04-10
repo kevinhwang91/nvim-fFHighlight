@@ -17,10 +17,10 @@ local disablePromptSign
 local numberHintThreshold
 
 local Context = {}
-function Context:build(char, lnum, colsIdx, wordRanges, bufnr, winid)
+function Context:build(char, lnum, cols, wordRanges, bufnr, winid)
     self.char = char
     self.lnum = lnum
-    self.colsIdx = colsIdx
+    self.cols = cols
     self.wordRanges = wordRanges
     self.curWordVirtTextId = nil
     self.virtTextIds = nil
@@ -30,7 +30,7 @@ end
 
 function Context:valid()
     local charValid = type(self.char) == 'string' and #self.char == 1
-    local indexValid = type(self.lnum) == 'number' and type(self.colsIdx) == 'table'
+    local indexValid = type(self.lnum) == 'number' and type(self.cols) == 'table'
     local bufValid = self.bufnr > 0 and api.nvim_buf_is_valid(self.bufnr)
     local winValid = self.winid > 0 and api.nvim_win_is_valid(self.winid)
     return charValid and indexValid and winValid and bufValid
@@ -58,7 +58,7 @@ function M.binarySearch(items, element, comp)
     return -min
 end
 
-local function getCharIndexInLine(line, char)
+local function getCharColInLine(line, char)
     local index = {}
     local s
     local e = 0
@@ -72,11 +72,11 @@ local function getCharIndexInLine(line, char)
     return index
 end
 
-local function findWordRangesInLineWithIndex(line, colsIdx)
+local function findWordRangesInLineWithCols(line, cols)
     local words = {}
     local lastIndex = 1
     local lastOff = 1
-    local col = colsIdx[lastIndex]
+    local col = cols[lastIndex]
     while col and #line > 0 do
         -- s is inclusive and e is exclusive
         local s, e = wordRegex:match_str(line)
@@ -88,7 +88,7 @@ local function findWordRangesInLineWithIndex(line, colsIdx)
             table.insert(words, {startCol, endCol})
             while col and col <= endCol do
                 lastIndex = lastIndex + 1
-                col = colsIdx[lastIndex]
+                col = cols[lastIndex]
             end
         end
         lastOff = lastOff + e
@@ -169,20 +169,20 @@ function M.findWith(prefix)
         return
     end
     local curLine = api.nvim_get_current_line()
-    local colsIdx = getCharIndexInLine(curLine, char)
+    local cols = getCharColInLine(curLine, char)
 
     clearVirtText(bufnr)
 
     local wordRanges
     if not disableWordsHl then
-        wordRanges = findWordRangesInLineWithIndex(curLine, colsIdx)
+        wordRanges = findWordRangesInLineWithCols(curLine, cols)
         for _, range in ipairs(wordRanges) do
             local startCol, endCol = unpack(range)
             setVirtTextOverlap(bufnr, lnum - 1, startCol - 1, curLine:sub(startCol, endCol),
                 'fFHintWords', {priority = hlPriority - 2})
         end
     end
-    Context:build(char, lnum, colsIdx, wordRanges, bufnr, winid)
+    Context:build(char, lnum, cols, wordRanges, bufnr, winid)
 
     cmd([[
         augroup fFHighlight
@@ -194,39 +194,39 @@ function M.findWith(prefix)
     api.nvim_feedkeys(cnt .. prefix .. char, 'in', false)
 end
 
-local function render(curColIdx)
+local function refresh(curColIdx)
     local char = Context.char
     local lnum = Context.lnum
-    local colsIdx = Context.colsIdx
+    local cols = Context.cols
     local wordRanges = Context.wordRanges
     local curWordVirtTextId = Context.curWordVirtTextId
     local virtTextIds = Context.virtTextIds
     local bufnr = Context.bufnr
     if not virtTextIds then
         virtTextIds = {}
-        for _, col in ipairs(colsIdx) do
+        for _, col in ipairs(cols) do
             local id = setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar')
             table.insert(virtTextIds, id)
         end
         Context.virtTextIds = virtTextIds
     else
         for i, id in ipairs(virtTextIds) do
-            local col = colsIdx[i]
+            local col = cols[i]
             setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar', {id = id})
         end
     end
     for i = curColIdx - numberHintThreshold, 1, -1 do
         local id = virtTextIds[i]
-        local col = colsIdx[i]
+        local col = cols[i]
         local num = curColIdx - i
         if num > 9 then
             break
         end
         setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
     end
-    for i = curColIdx + numberHintThreshold, #colsIdx do
+    for i = curColIdx + numberHintThreshold, #cols do
         local id = virtTextIds[i]
-        local col = colsIdx[i]
+        local col = cols[i]
         local num = i - curColIdx
         if num > 9 then
             break
@@ -235,11 +235,11 @@ local function render(curColIdx)
     end
 
     if wordRanges then
-        local col = colsIdx[curColIdx]
+        local curCol = cols[curColIdx]
         local startCol, endCol
         for _, range in ipairs(wordRanges) do
             local s, e = unpack(range)
-            if s <= col and col <= e then
+            if s <= curCol and curCol <= e then
                 startCol, endCol = s, e
                 break
             end
@@ -270,13 +270,13 @@ function M.move()
         local lnum, col = unpack(pos)
         if lnum == Context.lnum then
             col = col + 1
-            local colsIdx = Context.colsIdx
-            local curColIdx = M.binarySearch(colsIdx, col)
+            local cols = Context.cols
+            local curColIdx = M.binarySearch(cols, col)
             if curColIdx < 0 then
                 M.reset()
                 return
             end
-            render(curColIdx)
+            refresh(curColIdx)
         else
             M.reset()
         end
