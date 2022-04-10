@@ -129,7 +129,7 @@ local function validPrefix(prefix)
 end
 
 local function validMode(mode)
-    if mode == 'n' or mode:lower():sub(1, 1) == 'v' or mode:byte(1, 1) == 22 then
+    if mode == 'n' or mode == 'nt' or mode:lower():sub(1, 1) == 'v' or mode:byte(1, 1) == 22 then
         return true
     end
     return false
