@@ -106,9 +106,9 @@ hi default fFPromptSign ctermfg=yellow cterm=bold guifg=yellow gui=bold
 -- All API under this module
 local m = require('fFHighlight')
 
---- find a char
----@param prefix string|'f'|'F'
-m.findWith(prefix)
+--- Find the character to be typed on the current line
+---@param backward? boolean the direction of finding character. true is backward, otherwise is forward
+m.findChar(backward)
 ```
 
 ## Customize configuration
@@ -123,6 +123,7 @@ use {
             hi fFPromptSign ctermfg=yellow cterm=bold guifg=yellow gui=bold
         ]])
         require('fFHighlight').setup({
+            disable_keymap = false,
             disable_words_hl = false,
             number_hint_threshold = 3,
             prompt_sign_define = {text = '✹'}

@@ -128,10 +128,6 @@ local function isFloatWin(winid)
     return fn.win_gettype(winid) == 'popup'
 end
 
-local function validPrefix(prefix)
-    return type(prefix) == 'string' and prefix:lower() == 'f'
-end
-
 local function validMode(mode)
     if mode == 'n' or mode == 'nt' or mode:lower():sub(1, 1) == 'v' or mode:byte(1, 1) == 22 then
         return true
@@ -139,11 +135,10 @@ local function validMode(mode)
     return false
 end
 
---- find a char
----@param prefix string|'f'|'F'
-function M.findWith(prefix)
+--- Find the character to be typed on the current line
+---@param backward? boolean the direction of finding character. true is backward, otherwise is forward
+function M.findChar(backward)
     assert(initialized, [[Not initialized yet, `require('fFHighlight').setup()` is required]])
-    assert(validPrefix(prefix), [[Only support 'f' or 'F' as a prefix]])
     local cnt = vim.v.count
     cnt = cnt == 0 and '' or tostring(cnt)
 
@@ -191,6 +186,7 @@ function M.findWith(prefix)
             au InsertEnter,TextChanged * lua require('fFHighlight').reset()
         augroup END
     ]])
+    local prefix = backward == true and 'F' or 'f'
     api.nvim_feedkeys(cnt .. prefix .. char, 'in', false)
 end
 
@@ -302,10 +298,10 @@ local function initialize(config)
 
     if not config.disable_keymap then
         local kopt = {noremap = true, silent = true}
-        api.nvim_set_keymap('n', 'f', [[<Cmd>lua require('fFHighlight').findWith('f')<CR>]], kopt)
-        api.nvim_set_keymap('x', 'f', [[<Cmd>lua require('fFHighlight').findWith('f')<CR>]], kopt)
-        api.nvim_set_keymap('n', 'F', [[<Cmd>lua require('fFHighlight').findWith('F')<CR>]], kopt)
-        api.nvim_set_keymap('x', 'F', [[<Cmd>lua require('fFHighlight').findWith('F')<CR>]], kopt)
+        api.nvim_set_keymap('n', 'f', [[<Cmd>lua require('fFHighlight').findChar()<CR>]], kopt)
+        api.nvim_set_keymap('x', 'f', [[<Cmd>lua require('fFHighlight').findChar()<CR>]], kopt)
+        api.nvim_set_keymap('n', 'F', [[<Cmd>lua require('fFHighlight').findChar(true)<CR>]], kopt)
+        api.nvim_set_keymap('x', 'F', [[<Cmd>lua require('fFHighlight').findChar(true)<CR>]], kopt)
     end
     disableWordsHl = config.disable_words_hl
     numberHintThreshold = config.number_hint_threshold
