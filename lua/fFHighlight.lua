@@ -58,8 +58,8 @@ function M.binarySearch(items, element, comp)
     return -min
 end
 
-local function getCharColInLine(line, char)
-    local index = {}
+local function findCharColsInLine(line, char)
+    local cols = {}
     local s
     local e = 0
     while true do
@@ -67,16 +67,16 @@ local function getCharColInLine(line, char)
         if not s then
             break
         end
-        table.insert(index, s)
+        table.insert(cols, s)
     end
-    return index
+    return cols
 end
 
 local function findWordRangesInLineWithCols(line, cols)
-    local words = {}
-    local lastIndex = 1
+    local ranges = {}
+    local lastIdx = 1
     local lastOff = 1
-    local col = cols[lastIndex]
+    local col = cols[lastIdx]
     while col and #line > 0 do
         -- s is inclusive and e is exclusive
         local s, e = wordRegex:match_str(line)
@@ -85,16 +85,16 @@ local function findWordRangesInLineWithCols(line, cols)
         end
         local startCol, endCol = s + lastOff, e + lastOff - 1
         if col >= startCol and col <= endCol then
-            table.insert(words, {startCol, endCol})
+            table.insert(ranges, {startCol, endCol})
             while col and col <= endCol do
-                lastIndex = lastIndex + 1
-                col = cols[lastIndex]
+                lastIdx = lastIdx + 1
+                col = cols[lastIdx]
             end
         end
         lastOff = lastOff + e
         line = line:sub(e + 1)
     end
-    return words
+    return ranges
 end
 
 local function getKeystroke()
@@ -164,7 +164,7 @@ function M.findChar(backward)
         return
     end
     local curLine = api.nvim_get_current_line()
-    local cols = getCharColInLine(curLine, char)
+    local cols = findCharColsInLine(curLine, char)
 
     clearVirtText(bufnr)
 
