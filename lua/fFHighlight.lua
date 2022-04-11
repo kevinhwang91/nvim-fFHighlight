@@ -31,9 +31,8 @@ end
 function Context:valid()
     local charValid = type(self.char) == 'string' and #self.char == 1
     local indexValid = type(self.lnum) == 'number' and type(self.cols) == 'table'
-    local bufValid = self.bufnr > 0 and api.nvim_buf_is_valid(self.bufnr)
-    local winValid = self.winid > 0 and api.nvim_win_is_valid(self.winid)
-    return charValid and indexValid and winValid and bufValid
+    local winValid = self.winid and self.winid > 0 and api.nvim_win_is_valid(self.winid)
+    return charValid and indexValid and winValid
 end
 
 function M.binarySearch(items, element, comp)
@@ -282,7 +281,11 @@ function M.move()
 end
 
 function M.reset()
-    clearVirtText(Context.bufnr)
+    local bufnr
+    if Context.bufnr and Context.bufnr > 0 and api.nvim_buf_is_valid(Context.bufnr) then
+        bufnr = Context.bufnr
+    end
+    clearVirtText(bufnr)
     cmd('au! fFHighlight')
 end
 
