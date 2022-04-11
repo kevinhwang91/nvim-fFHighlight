@@ -270,7 +270,10 @@ function M.findChar(backward)
     -- Like call findChar() at the end of line or v:count is large
     if #cols > 0 then
         vim.schedule(function()
-            local nLnum, nCol = unpack(api.nvim_win_get_cursor(0))
+            if api.nvim_get_current_win() ~= winid then
+                return
+            end
+            local nLnum, nCol = unpack(api.nvim_win_get_cursor(winid))
             if nLnum ~= lnum or nCol + 1 ~= curCol or not Context:valid() then
                 return
             end
