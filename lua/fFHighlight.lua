@@ -186,7 +186,7 @@ function M.findChar(backward)
         augroup END
     ]])
     local prefix = backward == true and 'F' or 'f'
-    api.nvim_feedkeys(cnt .. prefix .. char, 'in', false)
+    api.nvim_feedkeys(cnt .. prefix .. char, 'nt', false)
 end
 
 local function refresh(curColIdx)
