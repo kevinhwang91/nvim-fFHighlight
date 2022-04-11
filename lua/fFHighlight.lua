@@ -16,14 +16,39 @@ local disableWordsHl
 local disablePromptSign
 local numberHintThreshold
 
+local function setVirtTextOverlap(bufnr, row, col, char, hlName, opts)
+    opts = opts or {}
+    return api.nvim_buf_set_extmark(bufnr, ns, row, col, {
+        id = opts.id,
+        virt_text = {{char, hlName}},
+        virt_text_pos = 'overlay',
+        hl_mode = 'combine',
+        priority = opts.priority or hlPriority
+    })
+end
+
+local function clearVirtText(bufnr)
+    bufnr = bufnr or api.nvim_get_current_buf()
+    api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+end
+
+---@class Context
+---@field char string
+---@field lnum integer
+---@field cols integer[]
+---@field virtTextIds? integer[]
+---@field wordRanges? integer[]
+---@field curWordVirtTextId? integer
+---@field bufnr integer
+---@field winid integer
 local Context = {}
 function Context:build(char, lnum, cols, wordRanges, bufnr, winid)
     self.char = char
     self.lnum = lnum
     self.cols = cols
+    self.virtTextIds = nil
     self.wordRanges = wordRanges
     self.curWordVirtTextId = nil
-    self.virtTextIds = nil
     self.bufnr = bufnr or api.nvim_get_current_buf()
     self.winid = winid or api.nvim_get_current_win()
 end
@@ -35,7 +60,75 @@ function Context:valid()
     return charValid and indexValid and winValid
 end
 
-function M.binarySearch(items, element, comp)
+function Context:refreshHint(backwardColIdx, forwardColIdx)
+    local bufnr, lnum, cols, char = self.bufnr, self.lnum, self.cols, self.char
+    local changedIds = {}
+    if not self.virtTextIds then
+        local virtTextIds = {}
+        for _, col in ipairs(cols) do
+            local id = setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar')
+            table.insert(virtTextIds, id)
+            changedIds[id] = true
+        end
+        self.virtTextIds = virtTextIds
+    end
+
+    for i = backwardColIdx - numberHintThreshold, 1, -1 do
+        local id = self.virtTextIds[i]
+        local col = cols[i]
+        local num = backwardColIdx - i
+        if num > 9 then
+            break
+        end
+        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
+        changedIds[id] = true
+    end
+    for i = forwardColIdx + numberHintThreshold, #cols do
+        local id = self.virtTextIds[i]
+        local col = cols[i]
+        local num = i - forwardColIdx
+        if num > 9 then
+            break
+        end
+        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
+        changedIds[id] = true
+    end
+    for i, id in ipairs(self.virtTextIds) do
+        if not changedIds[id] then
+            local col = cols[i]
+            setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar', {id = id})
+        end
+    end
+end
+
+function Context:refreshCurrentWord(curColIdx)
+    if not self.wordRanges then
+        return
+    end
+    local bufnr, lnum = self.bufnr, self.lnum
+    local curCol = self.cols[curColIdx]
+    local startCol, endCol
+    for _, range in ipairs(self.wordRanges) do
+        local s, e = unpack(range)
+        if s <= curCol and curCol <= e then
+            startCol, endCol = s, e
+            break
+        end
+    end
+
+    if startCol and endCol then
+        local curLine = api.nvim_get_current_line()
+        if not self.curWordVirtTextId then
+            Context.curWordVirtTextId = setVirtTextOverlap(bufnr, lnum - 1, startCol - 1,
+                curLine:sub(startCol, endCol), 'fFHintCurrentWord', {priority = hlPriority - 1})
+        else
+            setVirtTextOverlap(bufnr, lnum - 1, startCol - 1, curLine:sub(startCol, endCol),
+                'fFHintCurrentWord', {id = self.curWordVirtTextId, priority = hlPriority - 1})
+        end
+    end
+end
+
+local function binarySearch(items, element, comp)
     vim.validate({items = {items, 'table'}, comp = {comp, 'function', true}})
     if not comp then
         comp = function(a, b)
@@ -107,22 +200,6 @@ local function getKeystroke()
     return nr > 0 and nr < 128 and ('%c'):format(nr) or ''
 end
 
-local function setVirtTextOverlap(bufnr, row, col, char, hlName, opts)
-    opts = opts or {}
-    return api.nvim_buf_set_extmark(bufnr, ns, row, col, {
-        id = opts.id,
-        virt_text = {{char, hlName}},
-        virt_text_pos = 'overlay',
-        hl_mode = 'combine',
-        priority = opts.priority or hlPriority
-    })
-end
-
-local function clearVirtText(bufnr)
-    bufnr = bufnr or api.nvim_get_current_buf()
-    api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-end
-
 local function isFloatWin(winid)
     return fn.win_gettype(winid) == 'popup'
 end
@@ -146,7 +223,8 @@ function M.findChar(backward)
 
     local bufnr = api.nvim_get_current_buf()
     local winid = api.nvim_get_current_win()
-    local lnum = api.nvim_win_get_cursor(0)[1]
+    local lnum, curCol = unpack(api.nvim_win_get_cursor(0))
+    curCol = curCol + 1
     local signId
     if not disablePromptSign then
         if not (vim.wo.signcolumn == 'auto' and isFloatWin(winid)) then
@@ -187,69 +265,24 @@ function M.findChar(backward)
     ]])
     local prefix = backward == true and 'F' or 'f'
     api.nvim_feedkeys(cnt .. prefix .. char, 'nt', false)
-end
 
-local function refresh(curColIdx)
-    local char = Context.char
-    local lnum = Context.lnum
-    local cols = Context.cols
-    local wordRanges = Context.wordRanges
-    local curWordVirtTextId = Context.curWordVirtTextId
-    local virtTextIds = Context.virtTextIds
-    local bufnr = Context.bufnr
-    if not virtTextIds then
-        virtTextIds = {}
-        for _, col in ipairs(cols) do
-            local id = setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar')
-            table.insert(virtTextIds, id)
-        end
-        Context.virtTextIds = virtTextIds
-    else
-        for i, id in ipairs(virtTextIds) do
-            local col = cols[i]
-            setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar', {id = id})
-        end
-    end
-    for i = curColIdx - numberHintThreshold, 1, -1 do
-        local id = virtTextIds[i]
-        local col = cols[i]
-        local num = curColIdx - i
-        if num > 9 then
-            break
-        end
-        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
-    end
-    for i = curColIdx + numberHintThreshold, #cols do
-        local id = virtTextIds[i]
-        local col = cols[i]
-        local num = i - curColIdx
-        if num > 9 then
-            break
-        end
-        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
-    end
-
-    if wordRanges then
-        local curCol = cols[curColIdx]
-        local startCol, endCol
-        for _, range in ipairs(wordRanges) do
-            local s, e = unpack(range)
-            if s <= curCol and curCol <= e then
-                startCol, endCol = s, e
-                break
+    -- Cursor may not move and CursorMoved event can't be fired.
+    -- Like call findChar() at the end of line or v:count is large
+    if #cols > 0 then
+        vim.schedule(function()
+            local nLnum, nCol = unpack(api.nvim_win_get_cursor(0))
+            if nLnum ~= lnum or nCol + 1 ~= curCol or not Context:valid() then
+                return
             end
-        end
-
-        if startCol and endCol then
-            local curLine = api.nvim_get_current_line()
-            if not curWordVirtTextId then
-                Context.curWordVirtTextId = setVirtTextOverlap(bufnr, lnum - 1, startCol - 1,
-                    curLine:sub(startCol, endCol), 'fFHintCurrentWord', {priority = hlPriority - 1})
-            else
-                setVirtTextOverlap(bufnr, lnum - 1, startCol - 1, curLine:sub(startCol, endCol),
-                    'fFHintCurrentWord', {id = curWordVirtTextId, priority = hlPriority - 1})
+            local curColIdx = binarySearch(cols, curCol)
+            local backwardColIdx, forwardColIdx = curColIdx, curColIdx
+            if curColIdx < 0 then
+                curColIdx = -curColIdx
+                backwardColIdx, forwardColIdx = curColIdx, curColIdx - 1
             end
-        end
+            Context:refreshHint(backwardColIdx, forwardColIdx)
+            Context:refreshCurrentWord(math.max(1, forwardColIdx))
+        end)
     end
 end
 
@@ -266,12 +299,13 @@ function M.move()
         if lnum == Context.lnum then
             col = col + 1
             local cols = Context.cols
-            local curColIdx = M.binarySearch(cols, col)
-            if curColIdx < 0 then
+            local curColIdx = binarySearch(cols, col)
+            if curColIdx > 0 then
+                Context:refreshHint(curColIdx, curColIdx)
+                Context:refreshCurrentWord(curColIdx)
+            else
                 M.reset()
-                return
             end
-            refresh(curColIdx)
         else
             M.reset()
         end
