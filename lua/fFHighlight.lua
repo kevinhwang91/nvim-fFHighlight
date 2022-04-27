@@ -191,10 +191,10 @@ end
 
 local function getKeystroke()
     ---@diagnostic disable-next-line: undefined-field
-    local nr = ffi.C.get_keystroke(nil)
+    local nr = ffi and ffi.C.get_keystroke(nil) or fn.getchar()
     -- C-c throw E5108: Error executing lua Keyboard interrupt
     -- `got_int` have been set to true, need an extra pcall command to eat it
-    if nr == 3 then
+    if ffi and nr == 3 then
         pcall(vim.cmd, '')
     end
     return nr > 0 and nr < 128 and ('%c'):format(nr) or ''
@@ -327,13 +327,13 @@ function M.reset()
 end
 
 local function initialize(config)
-    local ok
-    ok, ffi = pcall(require, 'ffi')
-    assert(ok, 'Need a ffi module')
-
-    ffi.cdef([[
+    local ok, res = pcall(require, 'ffi')
+    if ok then
+        ffi = res
+        ffi.cdef([[
         int get_keystroke(void *dummy_ptr);
-    ]])
+        ]])
+    end
     ns = api.nvim_create_namespace('fF-highlight')
 
     if not config.disable_keymap then
