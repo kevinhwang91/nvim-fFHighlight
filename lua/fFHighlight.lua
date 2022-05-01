@@ -18,13 +18,15 @@ local numberHintThreshold
 
 local function setVirtTextOverlap(bufnr, row, col, char, hlName, opts)
     opts = opts or {}
-    return api.nvim_buf_set_extmark(bufnr, ns, row, col, {
-        id = opts.id,
-        virt_text = {{char, hlName}},
-        virt_text_pos = 'overlay',
-        hl_mode = 'combine',
-        priority = opts.priority or hlPriority
+    -- may throw error: value outside range while editing
+    local ok, res = pcall(api.nvim_buf_set_extmark, bufnr, ns, row, col, {
+            id = opts.id,
+            virt_text = {{char, hlName}},
+            virt_text_pos = 'overlay',
+            hl_mode = 'combine',
+            priority = opts.priority or hlPriority
     })
+    return ok and res or nil
 end
 
 local function clearVirtText(bufnr)
