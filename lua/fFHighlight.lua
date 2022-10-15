@@ -36,13 +36,13 @@ end
 
 ---@class Context
 ---@field char string
----@field lnum integer
----@field cols integer[]
----@field virtTextIds? integer[]
----@field wordRanges? integer[]
----@field curWordVirtTextId? integer
----@field bufnr integer
----@field winid integer
+---@field lnum number
+---@field cols number[]
+---@field virtTextIds? number[]
+---@field wordRanges? table<number, number[]>
+---@field curWordVirtTextId? number
+---@field bufnr number
+---@field winid number
 local Context = {}
 function Context:build(char, lnum, cols, wordRanges, bufnr, winid)
     self.char = char
@@ -51,8 +51,8 @@ function Context:build(char, lnum, cols, wordRanges, bufnr, winid)
     self.virtTextIds = nil
     self.wordRanges = wordRanges
     self.curWordVirtTextId = nil
-    self.bufnr = bufnr or api.nvim_get_current_buf()
-    self.winid = winid or api.nvim_get_current_win()
+    self.bufnr = bufnr
+    self.winid = winid
 end
 
 function Context:valid()
@@ -69,13 +69,15 @@ function Context:refreshHint(backwardColIdx, forwardColIdx)
         local virtTextIds = {}
         for _, col in ipairs(cols) do
             local id = setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar')
-            table.insert(virtTextIds, id)
-            changedIds[id] = true
+            if id then
+                table.insert(virtTextIds, id)
+                changedIds[id] = true
+            end
         end
         self.virtTextIds = virtTextIds
     end
 
-    for i = backwardColIdx - numberHintThreshold, 1, -1 do
+    for i = math.min(backwardColIdx - numberHintThreshold, #cols), 1, -1 do
         local id = self.virtTextIds[i]
         local col = cols[i]
         local num = backwardColIdx - i
@@ -152,8 +154,9 @@ local function binarySearch(items, element, comp)
     return -min
 end
 
-local function findCharColsInLine(line, char)
+local function findCharColsInLine(line, char, col)
     local cols = {}
+    local i = 0
     local s
     local e = 0
     while true do
@@ -162,8 +165,13 @@ local function findCharColsInLine(line, char)
             break
         end
         table.insert(cols, s)
+        if s == col then
+            i = #cols
+        elseif s < col then
+            i = - #cols
+        end
     end
-    return cols
+    return cols, i
 end
 
 local function findWordRangesInLineWithCols(line, cols)
@@ -217,9 +225,6 @@ end
 ---@param backward? boolean the direction of finding character. true is backward, otherwise is forward
 function M.findChar(backward)
     assert(initialized, [[Not initialized yet, `require('fFHighlight').setup()` is required]])
-    local cnt = vim.v.count
-    cnt = cnt == 0 and '' or tostring(cnt)
-
     local mode = api.nvim_get_mode().mode
     assert(validMode(mode), 'Only support normal or visual mode')
 
@@ -243,8 +248,7 @@ function M.findChar(backward)
         return
     end
     local curLine = api.nvim_get_current_line()
-    local cols = findCharColsInLine(curLine, char)
-
+    local cols, curColIdx = findCharColsInLine(curLine, char, curCol)
     clearVirtText(bufnr)
 
     local wordRanges
@@ -257,73 +261,61 @@ function M.findChar(backward)
         end
     end
     Context:build(char, lnum, cols, wordRanges, bufnr, winid)
-
     cmd([[
         augroup fFHighlight
             au!
             au CursorMoved * lua require('fFHighlight').move()
-            au InsertEnter,TextChanged * lua require('fFHighlight').reset()
+            au InsertEnter,TextChanged * lua require('fFHighlight').dispose()
         augroup END
     ]])
-    local prefix = backward == true and 'F' or 'f'
-    api.nvim_feedkeys(cnt .. prefix .. char, 'nt', false)
-
-    -- Cursor may not move and CursorMoved event can't be fired.
-    -- Like call findChar() at the end of line or v:count is large
-    if #cols > 0 then
-        vim.schedule(function()
-            if api.nvim_get_current_win() ~= winid then
-                return
-            end
-            local nLnum, nCol = unpack(api.nvim_win_get_cursor(winid))
-            if nLnum ~= lnum or nCol + 1 ~= curCol or not Context:valid() then
-                return
-            end
-            local curColIdx = binarySearch(cols, curCol)
-            local backwardColIdx, forwardColIdx = curColIdx, curColIdx
-            if curColIdx < 0 then
-                curColIdx = -curColIdx
-                backwardColIdx, forwardColIdx = curColIdx, curColIdx - 1
-            end
-            Context:refreshHint(backwardColIdx, forwardColIdx)
-            Context:refreshCurrentWord(math.max(1, forwardColIdx))
-        end)
+    local nextColIdx
+    local cnt = vim.v.count1
+    if backward then
+        nextColIdx = curColIdx <= 0 and -curColIdx or curColIdx - cnt
+    else
+        nextColIdx = curColIdx < 0 and -curColIdx + cnt or curColIdx + cnt
     end
+    if 0 < nextColIdx and nextColIdx <= #cols then
+        api.nvim_win_set_cursor(0, {lnum, cols[nextColIdx] - 1})
+    else
+        local backwardColIdx, forwardColIdx = curColIdx, curColIdx
+        if curColIdx < 0 then
+            curColIdx = -curColIdx
+            backwardColIdx, forwardColIdx = curColIdx + 1, curColIdx
+        end
+        Context:refreshHint(backwardColIdx, forwardColIdx)
+    end
+    fn.setcharsearch({char = char, forward = backward and 0 or 1, ['until'] = 0})
 end
 
 function M.move()
     if not Context:valid() then
-        M.reset()
+        M.dispose()
         return
     end
 
     local winid = api.nvim_get_current_win()
-    if winid == Context.winid then
-        local pos = api.nvim_win_get_cursor(winid)
-        local lnum, col = unpack(pos)
-        if lnum == Context.lnum then
-            col = col + 1
-            local cols = Context.cols
-            local curColIdx = binarySearch(cols, col)
-            if curColIdx > 0 then
-                Context:refreshHint(curColIdx, curColIdx)
-                Context:refreshCurrentWord(curColIdx)
-            else
-                M.reset()
-            end
-        else
-            M.reset()
+    local cursor = api.nvim_win_get_cursor(winid)
+    local lnum, col = unpack(cursor)
+    local curColIdx = binarySearch(Context.cols, col + 1)
+    if winid == Context.winid and lnum == Context.lnum and curColIdx > 0 then
+        Context:refreshHint(curColIdx, curColIdx)
+        Context:refreshCurrentWord(curColIdx)
+        local fdo = vim.o.foldopen
+        if fdo:find('all', 1, true) or fdo:find('hor', 1, true) then
+            cmd('norm! zv')
         end
     else
-        M.reset()
+        M.dispose()
     end
 end
 
-function M.reset()
+function M.dispose()
     local bufnr
     if Context.bufnr and Context.bufnr > 0 and api.nvim_buf_is_valid(Context.bufnr) then
         bufnr = Context.bufnr
     end
+    Context:build()
     clearVirtText(bufnr)
     cmd('au! fFHighlight')
 end
@@ -333,7 +325,7 @@ local function initialize(config)
     if ok then
         ffi = res
         ffi.cdef([[
-        int get_keystroke(void *dummy_ptr);
+            int get_keystroke(void *dummy_ptr);
         ]])
     end
     ns = api.nvim_create_namespace('fF-highlight')
