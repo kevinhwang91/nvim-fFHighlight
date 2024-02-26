@@ -11,7 +11,7 @@ local initialized
 local signGroup
 local signPriority
 local wordRegex
-local hlPriority
+local has09
 local disableWordsHl
 local disablePromptSign
 local numberHintThreshold
@@ -20,13 +20,37 @@ local function setVirtTextOverlap(bufnr, row, col, char, hlName, opts)
     opts = opts or {}
     -- may throw error: value outside range while editing
     local ok, res = pcall(api.nvim_buf_set_extmark, bufnr, ns, row, col, {
-            id = opts.id,
-            virt_text = {{char, hlName}},
-            virt_text_pos = 'overlay',
-            hl_mode = 'combine',
-            priority = opts.priority or hlPriority
+        id = opts.id,
+        virt_text = {{char, hlName}},
+        virt_text_pos = 'overlay',
+        hl_mode = 'combine',
+        priority = opts.priority
     })
     return ok and res or nil
+end
+
+local function getHighestVirtTextPriorityInLine(bufnr, row)
+    local marks
+    if has09 then
+        marks = api.nvim_buf_get_extmarks(bufnr, -1, {row, 0}, {row + 1, 0}, {details = true})
+    else
+        marks = {}
+        for _, n in pairs(api.nvim_get_namespaces()) do
+            if n ~= ns then
+                for _, m in ipairs(api.nvim_buf_get_extmarks(bufnr, n, {row, 0}, {row + 1, 0}, {details = true})) do
+                    table.insert(marks, m)
+                end
+            end
+        end
+    end
+    local max = 2048
+    for _, m in ipairs(marks) do
+        local details = m[4]
+        if details.virt_text and max < details.priority then
+            max = details.priority
+        end
+    end
+    return max
 end
 
 local function clearVirtText(bufnr)
@@ -43,8 +67,9 @@ end
 ---@field curWordVirtTextId? number
 ---@field bufnr number
 ---@field winid number
+---@field hlPriority number
 local Context = {}
-function Context:build(char, lnum, cols, wordRanges, bufnr, winid)
+function Context:build(char, lnum, cols, wordRanges, bufnr, winid, hlPriority)
     self.char = char
     self.lnum = lnum
     self.cols = cols
@@ -53,6 +78,7 @@ function Context:build(char, lnum, cols, wordRanges, bufnr, winid)
     self.curWordVirtTextId = nil
     self.bufnr = bufnr
     self.winid = winid
+    self.hlPriority = hlPriority
 end
 
 function Context:valid()
@@ -65,10 +91,12 @@ end
 function Context:refreshHint(backwardColIdx, forwardColIdx)
     local bufnr, lnum, cols, char = self.bufnr, self.lnum, self.cols, self.char
     local changedIds = {}
+    local priority = self.hlPriority
     if not self.virtTextIds then
         local virtTextIds = {}
         for _, col in ipairs(cols) do
-            local id = setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar')
+            local id = setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar',
+                {priority = priority})
             if id then
                 table.insert(virtTextIds, id)
                 changedIds[id] = true
@@ -84,7 +112,8 @@ function Context:refreshHint(backwardColIdx, forwardColIdx)
         if num > 9 then
             break
         end
-        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
+        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber',
+            {id = id, priority = priority})
         changedIds[id] = true
     end
     for i = forwardColIdx + numberHintThreshold, #cols do
@@ -94,13 +123,15 @@ function Context:refreshHint(backwardColIdx, forwardColIdx)
         if num > 9 then
             break
         end
-        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber', {id = id})
+        setVirtTextOverlap(bufnr, lnum - 1, col - 1, tostring(num), 'fFHintNumber',
+            {id = id, priority = priority})
         changedIds[id] = true
     end
     for i, id in ipairs(self.virtTextIds) do
         if not changedIds[id] then
             local col = cols[i]
-            setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar', {id = id})
+            setVirtTextOverlap(bufnr, lnum - 1, col - 1, char, 'fFHintChar',
+                {id = id, priority = priority})
         end
     end
 end
@@ -124,10 +155,10 @@ function Context:refreshCurrentWord(curColIdx)
         local curLine = api.nvim_get_current_line()
         if not self.curWordVirtTextId then
             Context.curWordVirtTextId = setVirtTextOverlap(bufnr, lnum - 1, startCol - 1,
-                curLine:sub(startCol, endCol), 'fFHintCurrentWord', {priority = hlPriority - 1})
+                curLine:sub(startCol, endCol), 'fFHintCurrentWord', {priority = self.hlPriority - 1})
         else
             setVirtTextOverlap(bufnr, lnum - 1, startCol - 1, curLine:sub(startCol, endCol),
-                'fFHintCurrentWord', {id = self.curWordVirtTextId, priority = hlPriority - 1})
+                'fFHintCurrentWord', {id = self.curWordVirtTextId, priority = self.hlPriority - 1})
         end
     end
 end
@@ -250,6 +281,7 @@ function M.findChar(backward)
     local curLine = api.nvim_get_current_line()
     local cols, curColIdx = findCharColsInLine(curLine, char, curCol)
     clearVirtText(bufnr)
+    local hlPriority = getHighestVirtTextPriorityInLine(bufnr, lnum - 1) + 3
 
     local wordRanges
     if not disableWordsHl then
@@ -260,7 +292,7 @@ function M.findChar(backward)
                 'fFHintWords', {priority = hlPriority - 2})
         end
     end
-    Context:build(char, lnum, cols, wordRanges, bufnr, winid)
+    Context:build(char, lnum, cols, wordRanges, bufnr, winid, hlPriority)
     cmd([[
         augroup fFHighlight
             au!
@@ -349,7 +381,7 @@ local function initialize(config)
     ]])
 
     wordRegex = vim.regex([[\k\+]])
-    hlPriority = 4096
+    has09 = fn.has('nvim-0.9') == 1
     signPriority = 90
     signGroup = 'fFSignGroup'
     if type(config.prompt_sign_define) ~= 'table' then
@@ -381,8 +413,8 @@ function M.setup(opts)
         disable_words_hl = {config.disable_words_hl, 'boolean'},
         number_hint_threshold = {
             config.number_hint_threshold, function(v)
-                return type(v) == 'number' and v > 1
-            end, 'a number greater than 1'
+            return type(v) == 'number' and v > 1
+        end, 'a number greater than 1'
         },
         prompt_sign_define = {config.prompt_sign_define, 'table', true}
     })
